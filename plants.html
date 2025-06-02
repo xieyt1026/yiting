@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>植物名片AR互動測驗</title>
+  <script src="https://cdn.jsdelivr.net/npm/aframe@1.4.2/dist/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    #quiz-container button {
+      padding: 10px 20px;
+      font-size: 18px;
+      margin: 5px;
+      background-color: #6CBF84;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    #quiz-container button:hover {
+      background-color: #4DA76C;
+    }
+  </style>
+</head>
+<body>
+<!-- ========== AR場景（僅需一個！） ========== -->
+<a-scene mindar-image="imageTargetSrc: plants.mind; autoStart: true;" color-space="sRGB" renderer="colorManagement: true;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+  <a-assets>
+    <img id="card1" src="card1.jpg" />
+    <img id="card2" src="card2.jpg" />
+    <img id="card3" src="card3.jpg" />
+    <img id="card4" src="card4.jpg" />
+  </a-assets>
+  <a-camera look-controls="enabled: false"></a-camera>
+  <!-- 依照 targetIndex 對應 plants.mind 內四個圖片順序 -->
+  <a-entity mindar-image-target="targetIndex: 0" id="plant1" quiz-trigger>
+    <a-plane src="#card1" width="1.2" height="0.7" position="0 0 0"></a-plane>
+  </a-entity>
+  <a-entity mindar-image-target="targetIndex: 1" id="plant2" quiz-trigger>
+    <a-plane src="#card2" width="1.2" height="0.7" position="0 0 0"></a-plane>
+  </a-entity>
+  <a-entity mindar-image-target="targetIndex: 2" id="plant3" quiz-trigger>
+    <a-plane src="#card3" width="1.2" height="0.7" position="0 0 0"></a-plane>
+  </a-entity>
+  <a-entity mindar-image-target="targetIndex: 3" id="plant4" quiz-trigger>
+    <a-plane src="#card4" width="1.2" height="0.7" position="0 0 0"></a-plane>
+  </a-entity>
+</a-scene>
+
+<!-- ========== 題目互動框 ========== -->
+<div id="quiz-container" style="position: absolute; bottom: 10%; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.95); padding: 20px; border-radius: 12px; display: none; z-index: 10;">
+  <div id="quiz-question" style="font-size: 20px; margin-bottom: 10px;"></div>
+  <button onclick="submitAnswer(true)">是</button>
+  <button onclick="submitAnswer(false)">否</button>
+  <div id="quiz-progress" style="margin-top: 12px;">第 1 題 / 5 題</div>
+</div>
+
+<div id="next-plant-container" style="position: absolute; top: 30%; left: 50%; transform: translateX(-50%); background: #fff; border-radius: 10px; padding: 20px; display: none; z-index: 15;">
+  <div style="font-size: 22px; margin-bottom: 15px;">🎉 恭喜你完成這棵植物的測驗！</div>
+  <button onclick="restartScan()">探索下一棵植物</button>
+</div>
+
+<audio id="correct-sound" src="correct.mp3" preload="auto"></audio>
+<audio id="wrong-sound" src="wrong.mp3" preload="auto"></audio>
+
+<script>
+  // 題庫不變
+  const quizzes = {
+    plant1: [
+      { question: "台灣二葉松屬於台灣特有的原生松樹品種。", answer: true },
+      { question: "台灣二葉松的每個葉束內有三根針葉。", answer: false },
+      { question: "台灣二葉松主要分布於台灣北部平地。", answer: false },
+      { question: "台灣二葉松適合生長於排水良好的山坡地。", answer: true },
+      { question: "台灣二葉松屬於落葉樹種。", answer: false }
+    ],
+    plant2: [
+      { question: "春不老屬於豆科刺桐屬的植物。", answer: true },
+      { question: "春不老花期短暫，春天僅開花幾天。", answer: false },
+      { question: "春不老的花型紅色或橘紅色，極具吸引力。", answer: true },
+      { question: "春不老象徵青春長存，因此得名。", answer: true },
+      { question: "春不老原產於寒帶地區。", answer: false }
+    ],
+    plant3: [
+      { question: "水梔子屬於茜草科植物。", answer: true },
+      { question: "水梔子的花色為深紅色。", answer: false },
+      { question: "水梔子果實為橢圓形，成熟時呈橙黃色。", answer: true },
+      { question: "水梔子適合生長於乾燥、貧瘠地區。", answer: false },
+      { question: "水梔子花期多集中在夏季。", answer: true }
+    ],
+    plant4: [
+      { question: "藍星花屬於夾竹桃科藍星花屬植物。", answer: true },
+      { question: "藍星花的葉子呈圓形且光滑無毛。", answer: false },
+      { question: "藍星花花型為五瓣星形，色彩為藍或天藍色。", answer: true },
+      { question: "藍星花原產於寒冷乾燥的西伯利亞地區。", answer: false },
+      { question: "藍星花常被用作花藝素材並深受日本愛好者喜愛。", answer: true }
+    ]
+  };
+
+  let currentPlant = null, currentIndex = 0;
+
+  function startQuiz(plantKey) {
+    currentPlant = plantKey;
+    currentIndex = 0;
+    document.getElementById('quiz-container').style.display = 'block';
+    document.getElementById('next-plant-container').style.display = 'none';
+    showQuestion();
+  }
+
+  function showQuestion() {
+    const q = quizzes[currentPlant][currentIndex];
+    document.getElementById('quiz-question').innerText = q.question;
+    document.getElementById('quiz-progress').innerText = `第 ${currentIndex + 1} 題 / 5 題`;
+  }
+
+  function submitAnswer(userAnswer) {
+    const correct = quizzes[currentPlant][currentIndex].answer === userAnswer;
+    document.getElementById(correct ? 'correct-sound' : 'wrong-sound').play();
+    if (correct) {
+      currentIndex++;
+      if (currentIndex < quizzes[currentPlant].length) {
+        showQuestion();
+      } else {
+        document.getElementById('quiz-container').style.display = 'none';
+        document.getElementById('next-plant-container').style.display = 'block';
+      }
+    } else {
+      alert('答錯了，再試一次！');
+    }
+  }
+
+  function restartScan() {
+    document.getElementById('next-plant-container').style.display = 'none';
+    currentPlant = null;
+    // 不需要強制重啟 scene，只重設狀態即可
+  }
+
+  // quiz-trigger 綁定在每個植物 target 上
+  AFRAME.registerComponent('quiz-trigger', {
+    init: function () {
+      this.el.addEventListener('targetFound', () => {
+        if (!currentPlant) {
+          const plantId = this.el.getAttribute('id');
+          if (quizzes[plantId]) startQuiz(plantId);
+        }
+      });
+    }
+  });
+</script>
+</body>
+</html>
